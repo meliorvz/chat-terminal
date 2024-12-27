@@ -1,6 +1,6 @@
 # Multi-Model Chat Interface
 
-A versatile Python-based chat interface that supports multiple AI models including OpenAI's GPT models, Anthropic's Claude models, XAI's Grok models, and local Ollama models. This interface provides a unified command-line experience for interacting with various AI models.
+A versatile Python-based chat interface that supports multiple AI models including OpenAI's GPT models, Anthropic's Claude models, XAI's Grok models, Deepseek models, and local Ollama models. This interface provides a unified command-line experience for interacting with various AI models.
 
 ## Features
 
@@ -8,6 +8,7 @@ A versatile Python-based chat interface that supports multiple AI models includi
   - OpenAI (GPT-4 and variants)
   - Anthropic (Claude 3 models)
   - XAI (Grok models)
+  - Deepseek (Deepseek Chat)
   - Ollama (Local models)
 - Interactive command-line interface with rich text formatting
 - Real-time model switching
@@ -46,6 +47,7 @@ A versatile Python-based chat interface that supports multiple AI models includi
    OPENAI_API_KEY=your_openai_key_here
    ANTHROPIC_API_KEY=your_anthropic_key_here
    XAI_API_KEY=your_xai_key_here
+   DEEPSEEK_API_KEY=your_deepseek_key_here
    ```
 
 ## Usage
@@ -58,7 +60,7 @@ A versatile Python-based chat interface that supports multiple AI models includi
 2. Available commands:
    - `quit`: Exit the chat interface
    - `clear`: Start a new conversation
-   - `backend <backend_name>`: Switch between 'anthropic', 'openai', 'ollama', or 'xai' backends
+   - `backend <backend_name>`: Switch between 'anthropic', 'openai', 'ollama', 'xai', or 'deepseek' backends
    - `model <model_name>`: Switch to a specific model
    - `set <parameter> <value>`: Adjust model parameters
    - `list models`: View available models

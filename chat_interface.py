@@ -149,6 +149,25 @@ class ChatInterface:
                     "temperature": 0.7,
                     "max_tokens": 2048,
                 }
+            },
+            "qwen-coder": {
+                "backend": "ollama",
+                "model_id": "qwen2.5-coder",
+                "label": "Qwen 2.5 Coder",
+                "parameters": {
+                    "temperature": 0.7,
+                    "max_tokens": 8192,
+                }
+            },
+            # Deepseek Models
+            "deepseek": {
+                "backend": "deepseek",
+                "model_id": "deepseek-chat",
+                "label": "Deepseek V3",
+                "parameters": {
+                    "temperature": 0.7,
+                    "max_tokens": 2048,
+                }
             }
         }
 
@@ -166,6 +185,10 @@ class ChatInterface:
         self.xai_api_key = os.getenv("XAI_API_KEY")
         if not self.xai_api_key:
             print("[warning] XAI API key not found. Please set the XAI_API_KEY environment variable.")
+
+        self.deepseek_api_key = os.getenv("DEEPSEEK_API_KEY")
+        if not self.deepseek_api_key:
+            print("[warning] Deepseek API key not found. Please set the DEEPSEEK_API_KEY environment variable.")
 
         # Set initial model
         self.current_model_key = "llama3.2"
@@ -215,10 +238,9 @@ class ChatInterface:
         prompt = ""
         for msg in self.conversation:
             if self.current_model["backend"] == "ollama":
-                if msg["role"] == "user":
-                    prompt += f"User: {msg['content']}\n"
-                elif msg["role"] == "assistant":
-                    prompt += f"Assistant: {msg['content']}\n"
+                # For Ollama, just use the last message
+                if msg == self.conversation[-1]:
+                    prompt = msg["content"]
             elif self.current_model["backend"] == "anthropic":
                 if msg["role"] == "user":
                     prompt += f"Human: {msg['content']}\n"
@@ -232,12 +254,17 @@ class ChatInterface:
                     prompt += f"User: {msg['content']}\n"
                 elif msg["role"] == "assistant":
                     prompt += f"Assistant: {msg['content']}\n"
+            elif self.current_model["backend"] == "deepseek":
+                if msg["role"] == "user":
+                    prompt += f"User: {msg['content']}\n"
+                elif msg["role"] == "assistant":
+                    prompt += f"System: {msg['content']}\n"
         if self.conversation and self.conversation[-1]["role"] == "user":
-            if self.current_model["backend"] == "ollama":
-                prompt += "Assistant:"
-            elif self.current_model["backend"] == "anthropic":
+            if self.current_model["backend"] == "anthropic":
                 prompt += "\n\nAssistant:"
             elif self.current_model["backend"] == "xai":
+                prompt += "\n\nAssistant:"
+            elif self.current_model["backend"] == "deepseek":
                 prompt += "\n\nAssistant:"
         return prompt.strip()
 
@@ -354,18 +381,51 @@ class ChatInterface:
     def get_response_from_ollama(self):
         prompt = self.build_prompt()
         try:
-            result = subprocess.run(
-                ["ollama", "run", self.current_model["model_id"], prompt],
-                capture_output=True,
-                text=True,
-                check=True
+            response = requests.post(
+                'http://localhost:11434/api/generate',
+                json={
+                    "model": self.current_model["model_id"],
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {
+                        "temperature": self.current_model["parameters"]["temperature"],
+                        "num_predict": self.current_model["parameters"]["max_tokens"]
+                    }
+                }
             )
-            return result.stdout.strip()
-        except subprocess.CalledProcessError as e:
-            logging.error(f"Ollama error: {e.stderr.strip()}")
+            response.raise_for_status()
+            return response.json()["response"].strip()
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Ollama error: {str(e)}")
             return "Sorry, I couldn't process that request."
         except Exception as e:
             logging.error(f"Ollama unexpected error: {str(e)}")
+            return "Sorry, I couldn't process that request."
+
+    def get_response_from_deepseek(self):
+        if not self.deepseek_api_key:
+            return "Deepseek API key is not set. Please set the DEEPSEEK_API_KEY environment variable."
+
+        try:
+            # Initialize the OpenAI client with the Deepseek API key and base URL
+            client = openai.OpenAI(api_key=self.deepseek_api_key, base_url="https://api.deepseek.com")
+
+            # Prepare the messages for the API call
+            messages = [{"role": msg["role"], "content": msg["content"]} for msg in self.conversation]
+
+            # Make the API call
+            response = client.chat.completions.create(
+                model=self.current_model["model_id"],
+                messages=messages,
+                temperature=self.current_model["parameters"]["temperature"],
+                max_tokens=self.current_model["parameters"]["max_tokens"],
+                stream=False
+            )
+
+            # Extract and return the response
+            return response.choices[0].message.content.strip()
+        except Exception as e:
+            logging.error(f"Deepseek error: {str(e)}")
             return "Sorry, I couldn't process that request."
 
     def get_response(self):
@@ -378,11 +438,13 @@ class ChatInterface:
             return self.get_response_from_xai()
         elif backend == "ollama":
             return self.get_response_from_ollama()
+        elif backend == "deepseek":
+            return self.get_response_from_deepseek()
         else:
             raise ValueError(f"Unknown backend: {backend}")
 
     def handle_backend_switch(self, new_backend):
-        supported_backends = ["anthropic", "openai", "ollama", "xai"]
+        supported_backends = ["anthropic", "openai", "ollama", "xai", "deepseek"]
         if new_backend in supported_backends:
             if new_backend == "anthropic" and not self.anthropic_api_key:
                 self.console.print("[warning]Anthropic API key not set. Cannot switch to Anthropic backend.[/]")
@@ -390,6 +452,8 @@ class ChatInterface:
                 self.console.print("[warning]OpenAI API key not set. Cannot switch to OpenAI backend.[/]")
             elif new_backend == "xai" and not self.xai_api_key:
                 self.console.print("[warning]XAI API key not set. Cannot switch to XAI backend.[/]")
+            elif new_backend == "deepseek" and not self.deepseek_api_key:
+                self.console.print("[warning]Deepseek API key not set. Cannot switch to Deepseek backend.[/]")
             else:
                 models_for_backend = [key for key, value in self.models.items() if value["backend"] == new_backend]
                 if models_for_backend:
@@ -410,6 +474,8 @@ class ChatInterface:
                 self.console.print("[warning]OpenAI API key not set. Cannot switch to this model.[/]")
             elif model_backend == "xai" and not self.xai_api_key:
                 self.console.print("[warning]XAI API key not set. Cannot switch to this model.[/]")
+            elif model_backend == "deepseek" and not self.deepseek_api_key:
+                self.console.print("[warning]Deepseek API key not set. Cannot switch to this model.[/]")
             else:
                 self.current_model_key = model_key
                 self.current_model = self.models[self.current_model_key]
@@ -474,7 +540,7 @@ class ChatInterface:
                 "[bold cyan]Available Commands[/]\n"
                 "- `quit`: Exit the chat interface.\n"
                 "- `clear`: Start a new conversation.\n"
-                "- `backend <backend_name>`: Switch between 'anthropic', 'openai', 'ollama', or 'xai' backends.\n"
+                "- `backend <backend_name>`: Switch between 'anthropic', 'openai', 'ollama', 'xai', or 'deepseek' backends.\n"
                 "- `model <model_name>`: Switch to a specific model.\n"
                 "- `set <parameter> <value>`: Adjust model parameters (e.g., temperature, max_tokens).\n"
                 "- `list models`: List all available models.\n"
@@ -506,6 +572,7 @@ class ChatInterface:
         # self.console.print("OpenAI API Usage: ...")
         # self.console.print("Anthropic API Usage: ...")
         # self.console.print("XAI API Usage: ...")
+        # self.console.print("Deepseek API Usage: ...")
 
     def run(self):
         self.show_welcome()
